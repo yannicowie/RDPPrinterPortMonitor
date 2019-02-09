@@ -12,6 +12,7 @@ function Check-Servers {
 	$numberOfPorts = $allTCPIPports.length
 	$numberOfPrinters = $allPrinters.length
 
+	#initialising arrays output will be added into
 	[array]$PortsInUseArray = @()
 	[array]$PrintersInUseArray = @()
 	[array]$DeadPrinters = @()
