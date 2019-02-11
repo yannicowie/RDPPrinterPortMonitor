@@ -2,8 +2,13 @@
 
 function Check-Servers {
 
-	param($ServerName)
+	param(
+	[Parameter(Mandatory=$true, Position=0)]
+    [string] $ServerName
+	)
 
+	$ServerName | Out-File $logfilepathname -Append
+	
 	#Getting lists of all printers and all TCP/IP ports on the computer
 	$allTCPIPports = Get-WMIObject win32_tcpipprinterport -ComputerName $ServerName
 
@@ -25,21 +30,29 @@ function Check-Servers {
 		
 		if ($testerCounter -lt $NumPortsToTest){
 			#testing the ports one by one.
-			$hostname = $PortsInUseArray[$testerCounter].HostAddress
-			$portnum = $PortsInUseArray[$testerCounter].PortNumber
+			$global:hostname = $PortsInUseArray[$testerCounter].HostAddress
+			[int]$global:portnum = $PortsInUseArray[$testerCounter].PortNumber
+			
+				#TESTING - outputing the printer port being tested
+				write-host "The printer being tested has IP address: " $hostname " and Port Number: " $portnum
 			
 				#test-netconnection needs to be run on the server the port is set up on becasue it needs to come from that server's external IP - some printer ports may be locked down to only accept connections from the server's IP
-				$conntest = Invoke-Command $ServerName {test-netconnection $hostname -Port $portnum}
+				[array]$RemoteArgsArray = $hostname
+				$RemoteArgsArray = $RemoteArgsArray + $portnum
+				$conntest = Invoke-Command -ComputerName $ServerName -ScriptBlock{test-netconnection $args[0] -Port $args[1]} -ArgumentList $RemoteArgsArray
 			
 			$conntestresult = $conntest.TcpTestSucceeded
+			write-host "Connection test result for printer name: " $printersInUseArray[$testerCounter].name " resulted in: " $conntestresult
 			
 			#TESTING - a progress indication to say that a printer has been tested
-			write-host "A printer has been tested"
+			#write-host "A printer has been tested"
 			
-			if ($conntestresult = "False"){
+			if ($conntestresult -match "False"){
 				#the port is down, so we need to log the name of the printer and present that as the result of the script
 				$printerdown = $PrintersInUseArray[$testerCounter].name
-				$DeadPrinters = $DeadPrinters + $printerdown
+				$lineoutput = "Printer down: " + $printerdown
+				
+				$lineoutput | Out-File $logfilepathname -Append
 				
 				#now that we've notified the user the printer is down, we can move on and check the next printer in the list if there is one
 				$testerCounter = $testerCounter + 1
@@ -48,24 +61,20 @@ function Check-Servers {
 			else {
 				#that was a good port, so increase the counter by one and trigger the function again
 				$testerCounter = $testerCounter + 1
+				
+				$printerdown = $PrintersInUseArray[$testerCounter].name
+				#$lineoutput = "Printer Alive: " + $printerdown
+				
+				#$lineoutput | Out-File $logfilepathname -Append
+				
 				Port-Tester
 			}
 		}
 		
 		else {
-			#we must have tested all the ports, so time to finish the function by writing the dead printers to the log file
+			#we must have tested all the ports, so time to finish the function by writing the closing log line
+			"------------------------" | Out-File $logfilepathname -Append
 			
-			function line-writer {
-				$NumOfDeadPrinters = $DeadPrinters.length
-				$lineCounter = 0
-				if ($lineCounter -lt $NumOfDeadPrinters){
-					$lineToWrite = $ServerName + ": " + $DeadPrinters[$lineCounter].name
-					$lineToWrite | Out-File $logfilepathname
-					#We've now written that printer to the list, increasing line counter by one and triggering the function again
-					$lineCounter = $lineCounter + 1
-					line-writer
-				}
-			}
 		}
 		
 	}
@@ -137,35 +146,46 @@ function Get-Servers {
 	
 	$serverCounter = 0
 	
-	if ($serverCounter -lt $NumberOfServers) {
-		$currentServerName = $ServerList[$serverCounter].name
-		
-		#triggering the Check-Servers function and passing it the computer name parameter
-		$serverCounter = $serverCounter + 1
-		Check-Servers -ServerName $currentServerName
-		
-		#TESTING - a progress indication to say when a server is done
-		write-host "A server has ben completed"
+	function Get-Servers-Do {
+	
+		if ($serverCounter -lt $NumberOfServers) {
+			$currentServerName = $ServerList[$serverCounter].name
+			
+			#TESTING
+			write-host "Testing the server: " $currentServerName
+			
+			#triggering the Check-Servers function and passing it the computer name parameter
+			$serverCounter = $serverCounter + 1
+			Check-Servers -ServerName $currentServerName
+			
+			#TESTING - a progress indication to say when a server is done
+			write-host "A server has ben completed"
+			
+			Get-Servers-Do
+		}
+		else {
+			#all of the servers have been checked, so completing script
+			#insert action on script completion here
+			
+			#TESTING - a progress indication to say when the script has completed
+			write-host "All networked pritners on all servers have been checked. Output has been saved to log"
+		}
 	}
-	else {
-		#all of the servers have been checked, so completing script
-		#insert action on script completion here
-		
-		#TESTING - a progress indication to say when the script has completed
-		write-host "All networked pritners on all servers have been checked. Output has been saved to log"
-	}
+	
+	Get-Servers-Do
 }
 
 function Do-LogFile {
 	#Creating LogFile with today's date in file name
-	$currentDateTime = get-date -UFormat "%d-%m-%Y - %H:%M"
+	$currentDateTime = get-date -UFormat "%d%m%Y%H%M"
 	$logfilename = "PrinterPortLog " + $currentDateTime + ".txt"
 	$logfilepath = "C:\PrinterLogging\Logs"
 	$global:logfilepathname = $logfilepath + "\" + $logfilename
 	
-	New-Item -Path $logfilepath -Name $logfilename
+	New-Item -Path $logfilepath -Name $logfilename -type "File"
 }
 
-Do-LogFile
+clear-host
 
+Do-LogFile
 Get-Servers
